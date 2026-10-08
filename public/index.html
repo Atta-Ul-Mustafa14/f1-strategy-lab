@@ -1,0 +1,57 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>F1 Strategy Lab</title>
+<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0b10;--card:#15151e;--line:#262633;--red:#e10600;--txt:#f2f2f5;--mut:#9a9aab}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(900px 400px at 85% -10%,#2a0a0c,transparent),var(--bg);color:var(--txt);font-family:'Titillium Web',system-ui,sans-serif}
+header{padding:34px 5vw 18px;border-bottom:1px solid var(--line);position:relative}
+header:before{content:"";position:absolute;left:0;top:0;height:5px;width:100%;background:repeating-linear-gradient(90deg,var(--red) 0 60px,#fff 60px 70px,#111 70px 80px)}
+h1{margin:0;font-size:clamp(28px,5vw,48px);font-weight:900;letter-spacing:1px;text-transform:uppercase;font-style:italic}h1 b{color:var(--red)}
+header p{color:var(--mut);margin:6px 0 0;max-width:760px}
+main{padding:20px 5vw 40px;display:grid;gap:18px}
+.banner{background:#3a2a05;border:1px solid #ffb400;color:#ffd36b;padding:10px 14px;border-radius:10px;font-weight:600}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
+.kpi,.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.kpi{border-left:4px solid var(--red)}.kpi span{display:block;color:var(--mut);font-size:13px;text-transform:uppercase;letter-spacing:1px}
+.kpi b{font-size:30px;font-weight:900}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:18px}
+.card h2{margin:0 0 4px;font-size:18px;text-transform:uppercase;letter-spacing:.5px}.card h2 i{color:var(--red);font-style:normal}
+.card p{margin:0 0 10px;color:var(--mut);font-size:14px;min-height:40px}.box{position:relative;height:290px}
+footer{color:var(--mut);font-size:13px;padding:0 5vw 30px}
+</style></head><body>
+<header><h1>F1 <b>Strategy</b> Lab</h1>
+<p>Tyres, pit stops and weather across race weekends. Data from the OpenF1 API, validated with Pydantic, cleaned with pandas, stored in SQLite.</p></header>
+<main><div id="banner"></div><div class="kpis" id="kpis"></div>
+<div class="grid">
+<div class="card"><h2><i>01</i> Tyre degradation</h2><p id="t1"></p><div class="box"><canvas id="c1"></canvas></div></div>
+<div class="card"><h2><i>02</i> Pit lane time by team</h2><p id="t2"></p><div class="box"><canvas id="c2"></canvas></div></div>
+<div class="card"><h2><i>03</i> Pace by number of stops</h2><p id="t3"></p><div class="box"><canvas id="c3"></canvas></div></div>
+<div class="card"><h2><i>04</i> Track temperature vs pace</h2><p id="t4"></p><div class="box"><canvas id="c4"></canvas></div></div>
+<div class="card"><h2><i>05</i> Tyre choice: dry vs rain</h2><p id="t5"></p><div class="box"><canvas id="c5"></canvas></div></div>
+</div></main>
+<footer>Pace figures are seconds per lap vs the driver's (or field's) race median, with in-laps, out-laps and safety-car laps removed and a simple fuel correction (0.03 s per lap, an assumption). Results show correlation, not proof of cause.</footer>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const $=i=>document.getElementById(i),COL={SOFT:'#ff3b30',MEDIUM:'#ffd60a',HARD:'#e8e8ee',INTERMEDIATE:'#34c759',WET:'#0a84ff'};
+Chart.defaults.color='#9a9aab';Chart.defaults.borderColor='#262633';Chart.defaults.font.family="'Titillium Web',sans-serif";
+const opt=(x,y,extra={})=>({responsive:true,maintainAspectRatio:false,scales:{x:{title:{display:!!x,text:x},...(extra.x||{})},y:{title:{display:!!y,text:y},...(extra.y||{})}},plugins:{legend:{display:extra.legend!==false}}, ...(extra.o||{})});
+const mk=(id,cfg)=>new Chart($(id),cfg);
+fetch('data.json').then(r=>r.json()).then(d=>{
+ if(d.demo)$('banner').innerHTML='<div class="banner">SAMPLE DATA: these numbers are synthetic. Run etl.py and eda.py to replace them with real OpenF1 data.</div>';
+ const h=d.health,k=(l,v)=>`<div class="kpi"><span>${l}</span><b>${v.toLocaleString()}</b></div>`;
+ $('kpis').innerHTML=k('Races',h.sessions)+k('Laps',h.laps)+k('Tyre stints',h.stints)+k('Pit stops',h.pit)+k('Rejected rows',h.rejected)+k('Rejection rate',h.rejection_rate+'%');
+ const s=Object.entries(d.degradation).map(([c,p])=>[c,(p.at(-1)[1]-p[0][1])/(p.at(-1)[0]-p[0][0])]);
+ $('t1').textContent=s.map(([c,v])=>`${c} ${v>=0?'+':''}${v.toFixed(3)} s/lap`).join(' · ')+' (average slowdown per lap of tyre age)';
+ mk('c1',{type:'line',data:{datasets:Object.entries(d.degradation).map(([c,p])=>({label:c,data:p.map(([x,y])=>({x,y})),borderColor:COL[c]||'#fff',backgroundColor:COL[c]||'#fff',pointRadius:2,tension:.3}))},options:opt('Tyre age (laps)','Seconds slower than driver median',{x:{type:'linear'}})});
+ const p=d.pit_by_team;if(p.length){$('t2').textContent=`Fastest: ${p[0].team} (${p[0].median}s median). Slowest: ${p.at(-1).team} (${p.at(-1).median}s).`;
+ mk('c2',{type:'bar',data:{labels:p.map(x=>x.team),datasets:[{label:'Median pit lane time (s)',data:p.map(x=>x.median),backgroundColor:'#e10600'}]},options:opt('','Seconds',{o:{indexAxis:'y'},legend:false,x:{min:Math.floor(Math.min(...p.map(x=>x.median))-1)}})})}
+ const q=d.pace_by_stops,b=[...q].sort((a,c)=>a.pace-c.pace)[0];
+ if(b)$('t3').textContent=`${b.stops}-stop drivers had the best average pace (${b.pace>=0?'+':''}${b.pace}s vs the field). Strategy is confounded by car and driver quality.`;
+ mk('c3',{type:'bar',data:{labels:q.map(x=>x.stops+' stop'+(x.stops==1?'':'s')+' (n='+x.n+')'),datasets:[{label:'Mean pace vs field (s/lap)',data:q.map(x=>x.pace),backgroundColor:'#ff8a80'}]},options:opt('','Seconds vs field',{legend:false})});
+ const t=d.pace_by_temp;if(t.length>1)$('t4').textContent=`From ${t[0].band}°C to ${t.at(-1).band}°C track temperature, pace changes by ${(t.at(-1).pace-t[0].pace).toFixed(2)} s per lap.`;
+ mk('c4',{type:'line',data:{labels:t.map(x=>x.band+'°C'),datasets:[{label:'Mean pace vs driver median (s)',data:t.map(x=>x.pace),borderColor:'#e10600',backgroundColor:'rgba(225,6,0,.2)',fill:true,tension:.3}]},options:opt('Track temperature band','Seconds',{legend:false})});
+ const r=d.compound_by_rain,cs=['SOFT','MEDIUM','HARD','INTERMEDIATE','WET'],rk=Object.keys(r);
+ $('t5').textContent=rk.length>1?'Share of laps on each compound in dry and wet conditions.':'Not enough rain laps in the data to compare yet.';
+ mk('c5',{type:'bar',data:{labels:rk,datasets:cs.map(c=>({label:c,data:rk.map(n=>r[n][c]||0),backgroundColor:COL[c]}))},options:opt('','% of laps',{x:{stacked:true},y:{stacked:true,max:100}})});
+});
+</script></body></html>
